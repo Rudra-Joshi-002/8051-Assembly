@@ -12,6 +12,17 @@
 ;3. Select Page
 ;4. Display Text
 
+;following changes have been made in the code to make the display faster
+;check busy flag method has been introduced which checks the busy flag of GLCD in read mode and waits for appropriate
+;time to give it next set of instructions this helps as we now no longer has to use fixed delay method
+
+;the following is the change in procedure for checking the busy flag which is slightly different compared to standard
+;charcter LCD's which is:
+;here a high to low pulse is given to enable
+;instead of a low to high pulse for conventional displays rest of the code remains the same
+;also standard delay subroutine is reduced to 1ms to be more faster
+;and pulse duration for high to low transition is also reduced to 1 microsecond instead of 20ms that was used earlier
+
 org 0000h
 	
 	setb p2.3 ;set rest pin to 1 i.e. inactive mode
@@ -25,14 +36,13 @@ org 0000h
 	
 	mov a,#3fh
 	acall display_img
-	acall delay
 	
 	here: sjmp here
 	
 	org 200h ;all new glcd subroutines starts from here
 		
 		cmdwrt:
-		
+		acall check_busy_flag; wait till lcd is ready to accept new instruction
 		mov p1,a ;move command in accumulator to p1
 		
 		clr p2.0 ;select command register (rs-pin)
@@ -45,7 +55,7 @@ org 0000h
 		ret ;for cmdwrt
 		
 		datawrt:
-		
+		acall check_busy_flag; wait till lcd is ready to accept new instruction
 		mov p1,a ;move data in accumulator to p1
 		
 		setb p2.0 ;select data register (rs-pin)
@@ -57,6 +67,23 @@ org 0000h
 		
 		ret ;for datawrt
 		
+		check_busy_flag: ;subroutine that checks the status of busy flag based on above mentioned conditions
+		clr p2.0 ; clr rs
+		setb p2.1 ;set r/w to 1 for reading from LCD
+		back:setb p2.2 ;set enable for high to low pulse to be given
+		nop	; delay to generate a low pulse
+		clr p2.2 ; clr enable so that busy flag is now made availabe for reading at D7 of lcd
+
+		jb p1.7,back ; check
+		ret ;for check busy flag
+		
+		delay:;1ms delay assuming clk freq 12MHz
+		mov r3,#2
+		here2:mov r4,#255
+		here1:djnz r4,here1
+		djnz r3,here2
+		ret ;for delay
+		
 		display_img:
 		mov dptr,#hpbmp
 		mov r0,#00h ;page counter
@@ -64,11 +91,9 @@ org 0000h
 		
 		loop2:mov a,r0
 		acall set_pg
-		acall delay
 		
 		mov a,#00h
 		acall set_column
-		acall delay
 		
 		mov r2,#64d
 		inc r0
@@ -76,33 +101,23 @@ org 0000h
 		loop1:mov a,#00h ;fill all all the columns with light
 		movc a,@a+dptr
 		acall datawrt
-		acall delay
 		inc dptr
 		djnz r2,loop1
 		
 		mov a,#64d
 		acall set_column
-		acall delay
 		
 		mov r2,#64d
 		
 		loop3:mov a,#00h ;fill all all the columns with light
 		movc a,@a+dptr
 		acall datawrt
-		acall delay
 		inc dptr
 		djnz r2,loop3
 		
 		djnz r5,loop2
 		
 		ret ;for clear screen
-		
-		delay:;2ms delay assuming clk freq 12MHz
-		mov r3,#50
-		here2:mov r4,#255
-		here1:djnz r4,here1
-		djnz r3,here2
-		ret ;for delay
 		
 		set_column: ;selects a particular column form where to write data for a given selected page
 		
@@ -120,7 +135,6 @@ org 0000h
 		add a,#40h ;add the number plus the 40h which is command for slecting 0th column in glcd
 		
 		acall cmdwrt ;call command function to select a particular column
-		acall delay
 		
 		sjmp column_set
 		
@@ -132,7 +146,6 @@ org 0000h
 		add a,#40h ;since for right half values we'll add to 40h
 		
 		acall cmdwrt ;call command function to select a particular column
-		acall delay
 		
 		column_set: 
 		
@@ -148,7 +161,7 @@ org 0000h
 		
 		ret ;for set_pg
 		
-		org 287h
+		org 500h
 			
 			hpbmp:
 			db 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
