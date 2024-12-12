@@ -30,6 +30,11 @@
 ;to divide the screen into grid of 128 pixel grid which contains 8x8 pixel array which can be controlled individually
 ;also on this display move a dot as per the user inputs
 
+;---also the follwing register banks have been used for varoius operations---
+; reg-0->LCD Operations
+; reg-1->Keyboard Operations
+; reg-2->For Control And Informations Sotrage of The Control Element which is a square dot in this case
+
 org 0000h
 	
 	sjmp main
@@ -38,42 +43,76 @@ org 002bh
 	
 	main:
 	
+		mov p0,#0ffh ;set p0 as input port
+		
 		setb p2.3 ;set rest pin to 1 i.e. inactive mode
 		
 		mov sp,#30h ;move sp to ram loaction 20h
-		mov ie,#81h
-		mov ip,#01h
-		setb tcon.1
 		
-		acall delay ;some delay is introduced purposefully
-		acall delay
-		acall delay
-		acall delay
-		acall delay
-		acall delay
+		lcall delay ;some delay is introduced purposefully
+		lcall delay
+		lcall delay
+		lcall delay
+		lcall delay
+		lcall delay
 		
 		mov a,#3fh
-		acall cmdwrt
+		lcall cmdwrt
 		
-		acall clrscreen
+		lcall clrscreen
 		
-		mov a,#3d
-		acall set_pg
+		mov a,#0d
+		lcall set_column
 		
-		mov a,#6d
-		acall set_column
+		mov a,#0d
+		lcall set_pg_cntrl
 		
-		acall display_dot
+		lcall display_dot
 		
 		setb psw.4 ;reg-bank-2
 		clr psw.3
-		mov r1,#36h ;provide r1 of reg-bank-2 with initial coordinates of dot
+		mov r1,#00h ;provide r1 of reg-bank-2 with initial coordinates of dot
+		mov r2,#00h
 		clr psw.3
 		clr psw.4
 		
-		here:
+		; keyboard logic starts here
+		
+		here:push psw
+			setb psw.3 ;select reg-1 for Keyboard Opreations
+			clr psw.4
+			
+			no_rel:mov a,p0
+			cjne a,#0ffh,no_rel
+			lcall dboun
+			
+			wait:mov a,p0
+			cjne a,#0ffh,identify
+			sjmp wait
+			
+			identify:lcall dboun ;now the program serves to check 
+			mov a,p0 ;which key is pressed
+			
+			mov r0,#00h
+			mov r1,#08h
+			
+			again: rrc  a ;key indentification logic starts here
+			jc next_key
+			sjmp found
+			
+			next_key: inc r0
+			djnz r1,again
+			sjmp no_rel
+			
+			found: mov a,r0; reg where key code is stored
+			mov b,a; *****Reg-B stores the value of direction control*****
+			lcall calc_pos
+			lcall display_dot
+			
+			pop psw
+		
 		sjmp here
-	
+		
 org 0100h ;here lies the codes for GLCD Operations
 	
 		cmdwrt:
@@ -177,16 +216,18 @@ org 0100h ;here lies the codes for GLCD Operations
 		
 			mov b,#08d ;to set the starting column address to the one meant by pixel grid value 
 			mul ab
-			
-			clr c
 			mov b,a ;copy a in b for book-keeping
+			
 			subb a,#40h ;check if the number in accumulator is greater than 64 in decimal to take decision
 			jnc right_half ;jump to right half if number is >=64 in decimal
 			
 			;logic for selecting on left half of screen
 			
+			mov 18h,#00h
+			
 			clr p2.4 ;set cs1 to select first half of glcd (actullay inverted logic is used for proteus simulation hence a bit change in these and rst instructions is seen)
 			setb p2.5
+			
 			
 			mov a,b ;reload a with original number
 			add a,#40h ;add the number plus the 40h which is command for slecting 0th column in glcd
@@ -197,20 +238,47 @@ org 0100h ;here lies the codes for GLCD Operations
 			
 			right_half: ;logic for right of screen
 			
+			mov 18h,#01h
+			
 			setb p2.4 ;selecting right half of screen
 			clr p2.5
 			
 			add a,#40h ;since for right half values we'll add to 40h
-			
 			acall cmdwrt ;call command function to select a particular column
-		
+				
 		column_set: 
 		ret ;for set_column
 		
-		set_pg: ;Selects one of 8 vertical pages, each representing 8 rows of pixels.
-		
-			clr p2.4 ;enable both displays to set same page on both
+		set_pg_cntrl: ;Selects one of 8 vertical pages, each representing 8 rows of pixels.
+			
+			
+			mov b,a ;copy a in reg-b temporarily
+			
+			mov a,18h 
+			
+			jnz rhalf
+			
+			clr p2.4 ;select left half
+			setb p2.5
+			
+			sjmp done
+			
+			rhalf: ;if carry isn't 1 set screen to left half
+			
+			setb p2.4
 			clr p2.5
+			
+			done:mov a,b
+			add a,#0b8h ;add numbers form 0 to 7 to b8h to select any pg out of the available 8 pgs
+			acall cmdwrt
+			
+			
+		ret ;for set_pg_cntrl
+		
+		set_pg: ;Selects one of 8 vertical pages, each representing 8 rows of pixels.
+			
+			clr p2.5
+			clr p2.4
 			
 			add a,#0b8h ;add numbers form 0 to 7 to b8h to select any pg out of the available 8 pgs
 			acall cmdwrt
@@ -222,7 +290,6 @@ org 0100h ;here lies the codes for GLCD Operations
 				push psw
 				clr psw.3
 				clr psw.4
-				
 				mov r0,#00h ;page transversing index element
 				mov r1,#00h ;column counter
 				mov r4,#8d ;page counter
@@ -274,16 +341,20 @@ org 0100h ;here lies the codes for GLCD Operations
 				clr psw.3
 				
 ;		*****For Our Case p0.0->Right, p0.1->Left, p0.2->Up, p0.3->Down*****
-;				mov a,r1 ;store the old snake heads coordinates temporary in r6
-;				mov r6,a
-;				
-;				mov a,r3 ;mov direction info to reg-a
+				
 				mov a,b
 				
 				cjne a,#00h,nxt_01
 				inc r1 ;mov snake's head in +-ve x direction
 				mov a,r1
+				
+				anl a,#0fh
 				acall set_column
+				
+				mov a,r2 ;to maintain the page appropriately
+				anl a,#0fh
+				acall set_pg_cntrl
+				
 				sjmp ext
 				
 				nxt_01:
@@ -291,66 +362,42 @@ org 0100h ;here lies the codes for GLCD Operations
 				cjne a,#01h,nxt_02
 				dec r1 ;mov snake's head in -ve x direction
 				mov a,r1
+				anl a,#0fh
 				acall set_column
+				
+				mov a,r2 ;to maintain the page appropriately
+				anl a,#0fh
+				acall set_pg_cntrl
+				
 				sjmp ext
 				
 				nxt_02:
 				
 				cjne a,#02h,nxt_03
-				mov a,r1
-				clr c
-				subb a,#10h ;decrease the upper nibble by 1 i.e. y--
-				mov r1,a
-				acall set_pg
+				dec r2
+				mov a,r2 ;dec y coordinate; y--
+				anl a,#0fh
+				acall set_pg_cntrl
+				
+				mov a,r1 ;to maintain the column appropriately
+				anl a,#0fh
+				acall set_column
+				
 				sjmp ext
 				
 				nxt_03:
 				
-				mov a,r1
-				add a,#10h; increase the upper nibble by 1 i.e. y=++
-				acall set_pg
+				inc r2
+				mov a,r2
+				anl a,#0fh
+				acall set_pg_cntrl
+				
+				mov a,r1 ;to maintain the column appropriately
+				anl a,#0fh
+				acall set_column
 		ext:
 				pop psw
 				
 		ret ;for calc_pos subroutine
 		
-		keyboard:
-		
-			push psw
-			setb psw.3 ;select reg-1 for Keyboard Opreations
-			clr psw.4
-			
-			wait:mov a,p0
-			cjne a,#0ffh,identify
-			sjmp wait
-			
-			identify:lcall dboun ;now the program serves to check 
-			mov a,p0 ;which key is pressed
-			
-			mov r0,#00h
-			mov r1,#08h
-			
-			again: rrc  a ;key indentification logic starts here
-			jc next_key
-			sjmp found
-			
-			next_key: inc r0
-			djnz r1,again
-			mov r1,#0ffh
-			dec r0
-			
-			found: mov a,r0; reg where key code is stored
-			mov b,a; *****Reg-B stores the value of direction control*****
-			acall calc_pos
-			acall display_dot
-			
-			pop psw
-			
-			reti
-org 0003h
-	
-	ljmp keyboard
-
 end
-	
-	
