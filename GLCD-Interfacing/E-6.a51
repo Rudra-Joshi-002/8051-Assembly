@@ -343,9 +343,6 @@ org 600h; snake game
 			
 			wait:mov a,p0
 			cjne a,#0ffh,identify
-			lcall update_lcd
-			lcall calc_pos
-			lcall update_pos
 			sjmp wait
 			
 			identify:lcall dboun ;now the program serves to check 
