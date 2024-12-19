@@ -44,6 +44,10 @@ org 0000h
 		
 		mov sp,#30h ;move sp to ram loaction 20h
 		
+		mov tmod,#02h
+		mov th0,#00h
+		setb tr0
+		
 		lcall delay ;some delay is introduced purposefully
 		lcall delay
 		lcall delay
@@ -106,21 +110,22 @@ org 0100h ;here lies the codes for GLCD Operations
 		ret ;for datawrt
 		
 		display_char: ;subroutine to display a charcter form lookup table
-			;r5 of reg bak 1 used
-			push psw
-			mov psw ,#08h //reg bank 1
-			mov r5,#00h	; Initialize index for looping through the string		
-			mov a,r5 ;mov cuurent index into a
-			movc a, @a+dptr ; Load the character from the string
-			back2nxt:
-			lcall datawrt ; Call datawrt to display the character           
-			lcall delay ;call delay 
-			inc r5 ;increment index to access next character
-			mov a,r5 ;mov new index back into reg-a
-			movc a, @a+dptr ;access then new character
-			cjne a,#'/',back2nxt  ; If not end of string (null terminator), loop
-			pop psw
-			
+			  ;r5,r0 of reg bak 1 used
+				push psw
+				
+				mov psw ,#08h //reg bank 1
+				mov r5,#00h	; Initialize index for looping through the string
+				mov r0,#08
+				back2nxt:
+				mov a,r5 ;mov cuurent index into a
+				movc a, @a+dptr ; Load the character from the string
+				lcall datawrt ; Call datawrt to display the character           
+				lcall delay ;call delay 
+				inc r5 ;increment index to access next character
+				djnz r0,back2nxt
+				
+				pop psw
+		
 		ret ;for display_character
 		
 		delay:;1ms delay assuming clk freq 12MHz
@@ -138,6 +143,26 @@ org 0100h ;here lies the codes for GLCD Operations
 			
 		ret ;for delay
 		
+		delay1s:;1sec delay generation assuming 12Mhz Clk
+		;r7 and r6 of reg bank 0 used
+		
+			push psw
+			
+			mov psw ,#08h //reg bank 1
+			mov r7,#04
+			here0:mov r6,#250
+			here10:mov r5,#250
+			here20:
+			nop
+			nop
+			djnz r5,here20
+			djnz r6,here10
+			djnz r7,here0
+			
+			pop psw
+		
+		ret ;for delay1s		
+		
 		dboun: ;delay subroutine for keypad
 			
 			push psw
@@ -152,7 +177,8 @@ org 0100h ;here lies the codes for GLCD Operations
 			djnz r4,dloop2
 			
 			pop psw
-		ret
+			
+		ret ;for dboun
 		
 		set_column: ;selects a particular column form where to write data for a given selected page
 			
@@ -193,7 +219,7 @@ org 0100h ;here lies the codes for GLCD Operations
 		column_set: 
 		
 			pop b
-			
+			clr c
 		ret ;for set_column
 		
 		set_pg_cntrl: ;Selects one of 8 vertical pages, each representing 8 rows of pixels.
@@ -270,20 +296,20 @@ org 0100h ;here lies the codes for GLCD Operations
 		
 org 500h;lookup tables	for char ; black=1 ;upper nibble =lower 4 bits of 8 bits of col
 	
-		clear:  db 00h,00h,00h,00h,00h,00h,00h,00h,'/'
-		food: db 0ch, 12h, 22h, 44h, 44h, 22h, 12h, 0ch,'/'
-		black: db 0ffh,0ffh,0ffh,0ffh,0ffh,0ffh,0ffh,0ffh,'/'
-		 
-		tail: db 18h,3ch,3ch,3ch,3ch,3ch,3ch,3ch,18h,'/'
-		body:db 18h,3ch,3ch,3ch,3ch,3ch,3ch,3ch,18h,'/'
-		head: db 18h,3ch,7eh,7eh,7eh,7eh,3ch,18h,'/'
+		clear:  db 00h,00h,00h,00h,00h,00h,00h,00h
+		food: db 0ch, 12h, 22h, 44h, 44h, 22h, 12h, 0ch
+
+		body_horizontal:db 18h,3ch,3ch,3ch,3ch,3ch,3ch,3ch,18h
+		head_horizontal: db 18h,3ch,7eh,7eh,7eh,7eh,3ch,18h
 		
-		tail_:db 00h, 00h, 7eh, 0ffh, 0ffh, 7eh, 00h,00h,'/'
-		body_:db 00h, 00h, 7eh, 0ffh, 0ffh, 7eh, 00h,00h,'/'
-		head_:db  00h, 3ch, 7eh, 0ffh, 0ffh, 7eh, 3ch, 00h,'/'
+		body_vertical:db 00h, 00h, 7eh, 0ffh, 0ffh, 7eh, 00h,00h
+		head_vertical:db  00h, 3ch, 7eh, 0ffh, 0ffh, 7eh, 3ch, 00h
 			
-		down: db 18h,3ch,7ch,7ch,0fch,7ch,00h,00h,'/'		
-		up:db 18h,3ch,3eh,3fh,3fh,3eh,'/'
+		body_right_head_down: db 18h,3ch,7ch,7ch,0fch,7ch,00h,00h		
+		body_right_head_up:db 18h,3ch,3eh,3fh,3fh,3eh,00h,00h
+		
+		body_left_head_up: db 00h,00h,3eh,3fh,3fh,3eh,3ch,18h
+		body_left_head_down:db 00h,00h,7ch,0fch,0fch,7ch,3ch,1ch
 			
 org 600h; snake game 
 	
@@ -327,46 +353,48 @@ org 600h; snake game
 			mov dptr,#food
 			lcall display_char
 			
-			lcall update_lcd
 			lcall calc_pos
 			lcall update_pos
+			lcall update_lcd
+
 			
 			; keyboard logic starts here
 		
-		here:push psw
-			setb psw.3 ;select reg-1 for Keyboard Opreations
-			clr psw.4
-			
-			no_rel:mov a,p0
-			cjne a,#0ffh,no_rel
-			lcall dboun
-			
-			wait:mov a,p0
-			cjne a,#0ffh,identify
-			sjmp wait
-			
-			identify:lcall dboun ;now the program serves to check 
-			mov a,p0 ;which key is pressed
-			
-			mov r0,#00h
-			mov r1,#08h
-			
-			again: rrc  a ;key indentification logic starts here
-			jc next_key
-			sjmp found
-			
-			next_key: inc r0
-			djnz r1,again
-			sjmp no_rel
-			
-			found: mov a,r0; reg where key code is stored
-			mov 13h,a; 13h (reg-3 of reg-bank-2) stores the direction coordinates
-			lcall update_lcd
-			lcall calc_pos
-			lcall update_pos
-			pop psw
-			
-			sjmp here
+			here:push psw
+				setb psw.3 ;select reg-1 for Keyboard Opreations
+				clr psw.4
+				
+				no_rel:mov a,p0
+				cjne a,#0ffh,no_rel
+				lcall dboun
+				
+				wait:mov a,p0
+				cjne a,#0ffh,identify
+				sjmp wait
+				
+				identify:lcall dboun ;now the program serves to check 
+				mov a,p0 ;which key is pressed
+				
+				mov r0,#00h
+				mov r1,#08h
+				
+				again: rrc  a ;key indentification logic starts here
+				jc next_key
+				sjmp found
+				
+				next_key: inc r0
+				djnz r1,again
+				sjmp no_rel
+				
+				found: mov a,r0; reg where key code is stored
+				mov 13h,a; 13h (reg-3 of reg-bank-2) stores the direction coordinates
+				lcall calc_pos
+				lcall update_pos
+				lcall update_lcd
+
+				pop psw
+				
+				sjmp here
 			
 			choose_coord: ;this subroutine sets the cursor value to the coordinates contained in reg-a
 			
@@ -388,42 +416,44 @@ org 600h; snake game
 			ret ;for choose_coord
 			
 			calc_pos: ;subroutine to calculate position of head
-			setb psw.4 ;reg-bank-2
-			clr psw.3
-;		*****For Our Case p0.0->Right, p0.1->Left, p0.2->Up, p0.3->Down*****
-			mov a,r1 ;store the old snake heads coordinates temporary in r6
-			mov r6,a
 				
-			mov a,r3 ;mov direction info to reg-a
-				
-			cjne a,#00h,nxt_01
-			inc r1 ;mov snake's head in +-ve x direction
-			sjmp ext
-				
-			nxt_01:
-				
-			cjne a,#01h,nxt_02
-			dec r1 ;mov snake's head in -ve x direction
-			sjmp ext
-				
-			nxt_02:
-				
-			cjne a,#02h,nxt_03
-			mov a,r1
-			subb a,#10h ;set upper nibble to zero i.e. y=0
-			mov r1,a
-			sjmp ext
-				
-			nxt_03:
-				
-			mov a,r1
-			add a,#10h ;set upper nibble to zero i.e. y=0
-			mov r1,a
+				setb psw.4 ;reg-bank-2
+				clr psw.3
+	;		*****For Our Case p0.0->Right, p0.1->Left, p0.2->Up, p0.3->Down*****
+				mov a,r1 ;store the old snake heads coordinates temporary in r6
+				mov r6,a
+					
+				mov a,r3 ;mov direction info to reg-a
+					
+				cjne a,#00h,nxt_01
+				inc r1 ;mov snake's head in +-ve x direction
+				sjmp ext
+					
+				nxt_01:
+					
+				cjne a,#01h,nxt_02
+				dec r1 ;mov snake's head in -ve x direction
+				sjmp ext
+					
+				nxt_02:
+					
+				cjne a,#02h,nxt_03
+				mov a,r1
+				subb a,#10h ;set upper nibble to zero i.e. y=0
+				mov r1,a
+				sjmp ext
+					
+				nxt_03:
+					
+				mov a,r1
+				add a,#10h ;set upper nibble to zero i.e. y=0
+				mov r1,a
 			
 			ext:
 			ret ;for calc_pos subroutine
 
 			update_pos: ;this subroutine updates the coordinates of snakes body exluding head
+				
 				setb psw.4 ;reg-bank-2
 				clr psw.3
 				
@@ -446,103 +476,218 @@ org 600h; snake game
 
 			update_lcd: ;this function converts the coordinates to lcd values and displays the same
 				;lcd clr and cursor off yet to be given
+			
 				setb psw.4 ;reg-bank-2
 				clr psw.3
 				
-				mov a,b	; old tail in b
-				lcall choose_coord
-				mov dptr,#clear
-				lcall display_char
+				acall clear_tail
 				
-				mov a,r2			;tail pos in a
-				lcall choose_coord	;set coordinates
-				mov a,@r0			;head pos in a
-				subb a,19h			;compare with old body pos
-				anl a,#0f0h			; if both same then horizontal movement is there
-				jz s_t				; if not same body moving up r3=02 or down r3=03
-				mov a,r2			; if body moving up or down then check tail  
-				subb a,b			;if tail new and old pos same then tail is still horizontal
-				anl a,#0f0h			;else tail vertical
-				jz st_				
-				mov dptr,#body_		;if both tail and body moving vertically
-				sjmp e_t
-				st_:mov a,r3
-					subb a,#02h
-					jz up_
-					mov dptr,#down	;if only body vertical
-					sjmp e_t
-					up_:mov dptr,#up
-						sjmp e_t
-				s_t:mov dptr,#body	;none in vertical
-				e_t:lcall display_char
+				;remember that old tail coordinate after executing above subroutine still remains in reg-b
 				
+				acall update_tail_position
 				
-				mov a,@r0			;body pos in a
-				lcall choose_coord	;set coordinates
-				mov a,r1			;head pos in a
-				subb a,18h			;compare with old head pos
-				anl a,#0f0h			; if both same then horizontal movement is there
-				jz s_b				; if not same head moving up r3=02 or down r3=03
-				mov a,@r0			; if head moving up or down then check body  
-				subb a,19h			;if body new and old pos same then body is still horizontal
-				anl a,#0f0h			;else head vertical
-				jz sb_				
-				mov dptr,#body_		;if both body and head moving vertically
-				sjmp e_b
-				sb_:mov a,r3
-					subb a,#02h
-					jz up_again
-					mov dptr,#down	;if only body vertical
-					sjmp e_b
-					up_again:mov dptr,#up
-						sjmp e_b
-				s_b:mov dptr,#body	;none in vertical
-				e_b:lcall display_char
-				
-				
-				mov a,r1
-				lcall choose_coord
-				subb a,18h
-				anl a,#0f0h
-				jnz s_h
-				mov dptr,#head
-				sjmp e_h
-				s_h:mov dptr,#head_
-				e_h:lcall display_char
-				
-				
-			ext_2:	
+				acall update_body_position
+
+				acall update_head_position
+					
 				mov a,r1 ; store new head position in r1
-				cjne a,15h,ext_ ; compare head position 
+				cjne a,15h,exit_update_lcd ; compare head position 
+				
 				lcall food_pos ; update food_pos if it merge with head 
-				ext_:ret ;for update_lcd
+				
+				exit_update_lcd:
+				
+			ret ;for update_lcd
 
 
-				food_pos:
+			food_pos:
+				
 				clr psw.3 ;reg bank 2 selected
 				setb psw.4
-				
+				push b
 				mov 1fh,r5 ; r7 of reg bank 3
-				mov r5,tl0 ;timer instantaneous value in r5
-				mov a,r5
-				cjne a,11h,ch_b ; compare new position with head location
-				inc a
-				ch_b:cjne a,30h,ch_t;compare new position with body location
-				inc a
-				ch_t:cjne a,12h,skip;compare new position with tail location
-				inc a
-				skip:inc r4 ; inc length
-				mov r5,a ; final food position
-			
+				mov r5,#09h ;timer instantaneous value in r5
+				//mov a,r5
+				
+				mov a,r1      	;r1=05
+				anl a,#0f0h   	;a=00
+				mov b,a			;b=00
+				mov a,r5		;a=08
+				anl a,#0f0h;	;a=00
+				subb a,b
+				jnz jump	
+				swap a			;a=00
+				inc a			;a=01
+				swap a			;a=10
+				add a,r5		;a=18
+				mov r5,a		;r5=18
+				jump:
 				mov a,1fh ;old food position in 1fh, replace with space
-				lcall choose_coord
-				mov dptr,#clear
-				lcall display_char
-	
+				;lcall choose_coord
+				;mov dptr,#clear
+				;lcall display_char
 				mov a,r5			; mov food to location stored in r5
 				lcall choose_coord
 				mov dptr,#food
 				lcall display_char
-				ret ; ret from food_pos
+				pop b
+				
+			ret ;ret from food_pos
+				
+			clear_tail:
+				
+				mov a,b	; old tail in b
+				lcall choose_coord 
+				mov dptr,#clear
+				lcall display_char
+			
+			ret;for clear tail
+			
+			update_tail_position:
+				
+				clr c
+				mov a,r2 ;move current tail pos in a
+				lcall choose_coord ;set coordinates based on current position on GLCD
+				mov a,@r0 ;copy current body position in a
+				subb a,19h ;compare current position with old body position by subtracting to know if a page is changed to detect vertical motion
+				anl a,#0f0h	;mask the upper nibble and check for zero value. (reason after subtraction and masking, if a=0 then body movement is horizontal else its vertical)
+				
+				jz horizontal_tail ;if a is zero update tail to be horizontal else check other conditions (if not same body moving up r3=02 or down r3=03)
+				
+				clr c
+				mov a,r2 ;if body is moving up or down (this was decided based on non-zero value of a in above instruction) then check tail coordinates  
+				subb a,b ;if tail new and old pos same then tail is still horizontal
+				anl a,#0f0h	;else tail vertical (mask upper nibble and check if tail is still on same page while body moving up or down)
+				
+				jz bented_tail	;here if a=0 then we need to show a bented animation for screen i.e. tail is seen changing horizontal towards vertical type chracter animation
+				mov dptr,#body_vertical	;if a!=0 then both tail and body are moving vertically in this case we show vertical tail image on current tail position
+				sjmp exit_tail ;thus after loading a vertical tail jump to display it
+				
+				bented_tail:
+				
+				clr c
+				mov a,r3 ;(we come to this label when we want to dispay bented character on current tail position and for that we 1st move the direction coordinates in reg-a 
+				subb a,#02h ;here subtarction from immdeiate value 02h helps determine direction of advance which is up or down 
+				
+				jz vertical_tail ;i.e. here if result of operation is zero then a=0 and we are moving upwards else we are moving downwards
+				
+				clr c ;clear c for subtarction purposes
+				mov a,r2
+				anl a,#0fh ;lower nibble is masked because left or right movement is associated with column
+				mov 1bh,b ;temporarily copy old tail coordinate in 1bh r3 of reg-bank-3
+				anl 1bh,#0fh
+				subb a,1bh
+				
+				jnc brhd ;(body right head down) if carry is not set then situation is that body was moving right while head was moving down
+				
+				mov dptr,#body_left_head_down ;bented down charcter is loaded if condition of above instruction is not met
+				sjmp exit_tail ;thus after loading bented tail jump to display it
+				
+				brhd:mov dptr,#body_right_head_down
+				sjmp exit_tail
+				
+				vertical_tail:clr c ;clear c for subtarction purposes
+				mov a,r2
+				anl a,#0fh ;lower nibble is masked because left or right movement is associated with column
+				mov 1bh,b ;temporarily copy old tail coordinate in 1bh r3 of reg-bank-3
+				anl 1bh,#0fh
+				subb a,1bh
+				
+				jnc brhu ;(body right head up) if carry is not set then situation is that body was moving right while head was moving up 
+				
+				mov dptr,#body_left_head_up ;but if we are moving up and carry is set then update the tail character accordingly
+				sjmp exit_tail ;after doing it jump to display the same
+				
+				brhu: mov dptr,#body_right_head_up
+				sjmp exit_tail
+				
+				horizontal_tail:mov dptr,#body_horizontal	;none in vertical
+				
+				exit_tail:lcall display_char
+			
+			ret ;for update_tail_position
+			
+			update_body_position:
+				
+				clr c
+				mov a,@r0 ;load body position in reg-a
+				lcall choose_coord ;set coordinates on glcd
+				mov a,r1 ;load head pos in reg-a for comaprison purposes to determine direction of advance
+				subb a,18h ;compare with old head position by subtarcting to see if any vertical movement is detected
+				anl a,#0f0h	;mask the upper nibble and reg-a=0 then horizontal movement is there else head is moving vertically
+				
+				jz horizontal_body ;if new and old page is not same then head is moving either up r3=02 or down r3=03
+				
+				clr c
+				mov a,@r0 ;if head is moving up or down then check body conditions  
+				subb a,19h ;if body's new and old pos same then body is still horizontal but a bented animation requires to be shown on glcd
+				anl a,#0f0h	;else body vertical
+				
+				jz bented_body ;if not zero then a vertical body requires to be shown				
+				
+				mov dptr,#body_vertical	;if both body and head moving vertically
+				
+				sjmp exit_body
+				
+				bented_body:clr c
+				mov a,r3 ;load the direction information in reg-a
+				subb a,#02h ;subtract it form a immediate value of #02h to know if body is moving up or down
+				
+				jz vertical_body ;if zero then body is moving upwards else it's moving downwards
+				
+				clr c ;clear c for subtarction purposes
+				mov a,@r0
+				anl a,#0fh ;lower nibble is masked because left or right movement is associated with column
+				mov 1bh,19h ;temporarily copy body coordinate in 1bh r3 of reg-bank-3
+				anl 1bh,#0fh
+				subb a,1bh
+				
+				jnc brhd_1 ; head is moving down but body was moving right if carry is not set
+				
+				mov dptr,#body_left_head_down	;if only body vertical
+				sjmp exit_body
+				
+				brhd_1:mov dptr,#body_right_head_down
+				sjmp exit_body
+				
+				vertical_body:clr c ;clear c for subtarction purposes
+				mov a,@r0
+				anl a,#0fh ;lower nibble is masked because left or right movement is associated with column
+				mov 1bh,19h ;temporarily copy body coordinate in 1bh r3 of reg-bank-3
+				anl 1bh,#0fh
+				subb a,1bh
+				
+				jnc brhu_1 ;body moving right while head was moving up
+				
+				mov dptr,#body_left_head_up
+				sjmp exit_body
+				
+				brhu_1:mov dptr,#body_right_head_up
+				sjmp exit_body
+				
+				horizontal_body:mov dptr,#body_horizontal	;none in vertical
+				
+				exit_body:lcall display_char
+			
+			ret ;for update_body_position
+			
+			update_head_position:
+				
+				clr c
+				mov a,r1 ;load the current head coordinates in reg-a
+				lcall choose_coord ;set the coordinates on GLCD
+				subb a,18h ;subtract new coordinates form old ones
+				anl a,#0f0h ;mask the upper nibble of the result to see new movement is in vertical direction
+				
+				jnz vertical_head ;if zero then head is moving horizontally else it is moving vertically
+				
+				mov dptr,#head_horizontal
+				sjmp exit_head
+				
+				vertical_head:mov dptr,#head_vertical
+				
+				exit_head:lcall display_char
+			
+			ret ;for update_head_position
 			
 end
