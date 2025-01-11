@@ -73,24 +73,20 @@ org 002bh
 
 
 org 0003h
+	
 	setb p2.7
 	ljmp main_isr
-	returnback:reti
+	
 
-org 0affh
+org 0cffh
+	
 	main_isr:
+				
 				push psw
 				push acc
+				
 				setb psw.3 ;select reg-1 for Keyboard Opreations
 				clr psw.4
-				
-				/*no_rel:mov a,p0
-				cjne a,#0ffh,no_rel
-				lcall dboun
-				
-				wait:mov a,p0
-				cjne a,#0ffh,identify
-				sjmp wait*/
 				
 				identify:lcall dboun ;now the program serves to check 
 				mov a,p0 ;which key is pressed
@@ -104,7 +100,7 @@ org 0affh
 				
 				next_key: inc r0
 				djnz r1,again
-				ljmp returnback
+				sjmp returnback
 				
 				found: 
 				mov a,r0; reg where key code is stored
@@ -113,7 +109,10 @@ org 0affh
 				lcall self_collision
 				pop acc
 				pop psw
-				ljmp returnback
+				
+	returnback:
+
+	reti ;for key-board isr
 			
 
 
@@ -306,16 +305,6 @@ org 0100h ;here lies the codes for GLCD Operations
 			
 		ret ;for set_pg_cntrl
 		
-		set_pg: ;Selects one of 8 vertical pages, each representing 8 rows of pixels.
-			
-			clr p2.5
-			clr p2.4
-			
-			add a,#0b8h ;add numbers form 0 to 7 to b8h to select any pg out of the available 8 pgs
-			acall cmdwrt
-			
-		ret ;for set_pg
-		
 		clrscreen:
 				  ;r4,r3,r2,r1 of reg bank 0 used
 				push psw
@@ -396,7 +385,7 @@ org 500h;lookup tables	for char ; black=1 ;upper nibble =lower 4 bits of 8 bits 
 		C8: DB 00h,6ch,0feh,92h,92h,0feh,6ch,00h     ; 8
 		C9: DB 00h,4ch,0deh,92h,92h,0feh,7ch,00h    ; 9
 			
-org 600h; snake game 
+org 700h; snake game 
 	
 	snake_game:
 
@@ -433,17 +422,19 @@ org 600h; snake game
 			mov r6,a ; r6 for old head
 			mov 18h,r1 ;18h (r0 of reg-bank-3) for head
 			
+			mov 1dh,#00h ;seting the score register to zero immdiate value at start of game
+			
 			mov a,r5 ; load a with initial food coordinates
 			lcall choose_coord ;these instructions are concerned with displaying food at location present in r5
 			mov dptr,#food
 			lcall display_char
 			
 			test:
-			//mov ie,#00h
+			mov ie,#00h
 			lcall calc_pos
-			;lcall self_collision
 			lcall update_pos
 			lcall update_lcd
+			mov ie,#81h
 			lcall delay1s
 			sjmp test
 		ret	
@@ -560,7 +551,7 @@ org 600h; snake game
 				lcall check_coll
 			ret ;for update_lcd
 				
-			clear_tail:
+			clear_tail: ;this subroutine clears the tail on glcd at old coordinates
 				
 				mov a,b	; old tail in b
 				lcall choose_coord 
@@ -592,6 +583,7 @@ org 600h; snake game
 				sjmp exit_head
 				
 				next_head_coord2:
+				
 				
 				cjne a,#01h,next_head_coord3
 				
@@ -996,7 +988,7 @@ org 600h; snake game
 					
 					jnz exit_self_collision 
 					
-					lcall game_over ;however if a=0 then right key pressed for a head moving left and hence we call game-over
+					sjmp game_over_call ;however if a=0 then right key pressed for a head moving left and hence we jump to game-over
 				
 				check_left:
 				
@@ -1011,7 +1003,7 @@ org 600h; snake game
 					
 					jnz exit_self_collision 
 					
-					lcall game_over ;however if a=0 then right key pressed for a head moving left and hence we call game-over
+					sjmp game_over_call ;however if a=0 then right key pressed for a head moving left and hence we jump to game-over
 					
 				check_up:
 				
@@ -1026,7 +1018,7 @@ org 600h; snake game
 					
 					jnz exit_self_collision 
 					
-					lcall game_over ;however if a=0 then up key pressed for a head moving down and hence we call game-over
+					sjmp game_over_call ;however if a=0 then up key pressed for a head moving down and hence we jump to game-over
 					
 				check_down:
 					
@@ -1039,221 +1031,119 @@ org 600h; snake game
 					
 					jnz exit_self_collision 
 					
-					lcall game_over ;however if a=0 then up key pressed for a head moving down and hence we call game-over
+					game_over_call:lcall game_over ;however if a=0 then up key pressed for a head moving down and hence we call game-over
 				
 			exit_self_collision:
 			
 			ret ;for self_collision
 			
-			calc_score:
+			calc_score: ;this subroutine calculates the score and diplays the 2-digit code form 0-99 in decimal number system
+			;so yes this code can show you correct scores only for values form 0-99 in decimal
+			;also the logic used to display a given binary number/stored as hex number to its equivalent BCD is shown in Book By MKP Sir Ch-9 Ex-9.1 
+			;One Can Refer that for that logic understanting
 			
-				mov a,1dh
+				mov a,1dh ;move cuurent score value in reg-a
 				
-				da a
+				mov b,#10d ;move 10d in reg-b
 				
-				mov b,#10d
+				div ab ;quotient is stored in a (10's place digit) & remainder is stored in b (1's Digit Number)
 				
-				div ab
+				clr c ;clr carry for iterating for both the digits
 				
-				cjne a,#00h,check_1_d10
+				now_1s_place:
 				
-					mov a,#3ah
-					lcall choose_coord
+				cjne a,#00h,check_1 ;checkes if content of a is 00h takes appropriate action similar thing is done for other instructions below
+				
 					mov dptr,#C0
-					lcall display_char
-					ajmp next_digit
+					sjmp go_to_display
+					
+				check_1:
 				
-				check_1_d10:
+				cjne a,#01h,check_2
 				
-				cjne a,#01h,check_2_d10
-				
-					mov a,#3ah
-					lcall choose_coord
 					mov dptr,#C1
-					lcall display_char
-					ajmp next_digit
+					sjmp go_to_display
+					
+				check_2:
 				
-				check_2_d10:
+				cjne a,#02h,check_3
 				
-				cjne a,#02h,check_3_d10
-				
-					mov a,#3ah
-					lcall choose_coord
 					mov dptr,#C2
-					lcall display_char
-					ajmp next_digit
+					sjmp go_to_display
+					
+				check_3:
 				
-				check_3_d10:
+				cjne a,#03h,check_4
 				
-				cjne a,#03h,check_4_d10
-				
-					mov a,#3ah
-					lcall choose_coord
 					mov dptr,#C3
-					lcall display_char
-					ajmp next_digit
+					sjmp go_to_display
 					
-				check_4_d10:
+				check_4:
 				
-				cjne a,#04h,check_5_d10
+				cjne a,#04h,check_5
 				
-					mov a,#3ah
-					lcall choose_coord
 					mov dptr,#C4
-					lcall display_char
-					ajmp next_digit
+					sjmp go_to_display
 					
-				check_5_d10:
+				check_5:
 				
-				cjne a,#05h,check_6_d10
+				cjne a,#05h,check_6
 				
-					mov a,#3ah
-					lcall choose_coord
 					mov dptr,#C5
-					lcall display_char
-					ajmp next_digit
+					sjmp go_to_display
 					
-				check_6_d10:
+				check_6:
 				
-				cjne a,#06h,check_7_d10
+				cjne a,#06h,check_7
 				
-					mov a,#3ah
-					lcall choose_coord
 					mov dptr,#C6
-					lcall display_char
-					ajmp next_digit
-					
-				check_7_d10:
+					sjmp go_to_display
 				
-				cjne a,#07h,check_8_d10
+				check_7:
 				
-					mov a,#3ah
-					lcall choose_coord
+				cjne a,#07h,check_8
+				
 					mov dptr,#C7
-					lcall display_char
-					ajmp next_digit
+					sjmp go_to_display	
 					
-				check_8_d10:
+				check_8:
 				
-				cjne a,#08h,check_9_d10
+				cjne a,#08h,check_9
 				
-					mov a,#3ah
-					lcall choose_coord
 					mov dptr,#C8
-					lcall display_char
-					ajmp next_digit
+					sjmp go_to_display
 					
-				check_9_d10:
+				check_9:
 				
+					mov dptr,#C9
+					
+				go_to_display:
+					
+					jc almost_there ;check if carry is set or not if not then load 10's digit number on GLCD else jmp to label
+					
 					mov a,#3ah
 					lcall choose_coord
-					mov dptr,#C9
 					lcall display_char
+					sjmp next_digit ;after displaying 10's digit at appropraite place in glcd make decsions for 1's digit
+					
+					almost_there:
+					
+					mov a,#3bh ;since carry was set now display 1's digit number on glcd and then return from subroutine
+					lcall choose_coord
+					lcall display_char
+					sjmp exit_calc_score
 					
 				next_digit:
 				
 				mov a,b ;put the 1's digit in a
-				
-				cjne a,#00h,check_1_d1
-				
-					mov a,#3bh
-					lcall choose_coord
-					mov dptr,#C0
-					lcall display_char
-					ajmp exit_calc_score
-				
-				check_1_d1:
-				
-				cjne a,#01h,check_2_d1
-				
-					mov a,#3bh
-					lcall choose_coord
-					mov dptr,#C1
-					lcall display_char
-					ajmp exit_calc_score
-				
-				check_2_d1:
-				
-				cjne a,#02h,check_3_d1
-				
-					mov a,#3bh
-					lcall choose_coord
-					mov dptr,#C2
-					lcall display_char
-					ajmp exit_calc_score
-				
-				check_3_d1:
-				
-				cjne a,#03h,check_4_d1
-				
-					mov a,#3bh
-					lcall choose_coord
-					mov dptr,#C3
-					lcall display_char
-					ajmp exit_calc_score
-					
-				check_4_d1:
-				
-				cjne a,#04h,check_5_d1
-				
-					mov a,#3bh
-					lcall choose_coord
-					mov dptr,#C4
-					lcall display_char
-					ajmp exit_calc_score
-					
-				check_5_d1:
-				
-				cjne a,#05h,check_6_d1
-				
-					mov a,#3bh
-					lcall choose_coord
-					mov dptr,#C5
-					lcall display_char
-					ajmp exit_calc_score
-					
-				check_6_d1:
-				
-				cjne a,#06h,check_7_d1
-				
-					mov a,#3bh
-					lcall choose_coord
-					mov dptr,#C6
-					lcall display_char
-					ajmp exit_calc_score
-					
-				check_7_d1:
-				
-				cjne a,#07h,check_8_d1
-				
-					mov a,#3bh
-					lcall choose_coord
-					mov dptr,#C7
-					lcall display_char
-					ajmp exit_calc_score
-					
-				check_8_d1:
-				
-				cjne a,#08h,check_9_d1
-				
-					mov a,#3bh
-					lcall choose_coord
-					mov dptr,#C8
-					lcall display_char
-					ajmp exit_calc_score
-					
-				check_9_d1:
-				
-					mov a,#3bh
-					lcall choose_coord
-					mov dptr,#C9
-					lcall display_char
+				setb c
+				sjmp now_1s_place ;iterate the procedure again for 1's digit number
 			
 			exit_calc_score:
 			
 			ret ;for calc score
 			
-			disp_score:
+			disp_score: ;this subroutine displays the score of user after a game-over
 			
 				mov a ,#34h
 				lcall choose_coord
@@ -1280,32 +1170,43 @@ org 600h; snake game
 				mov dptr,#E
 				lcall display_char
 				
+				lcall calc_score ;calculate score as per value in score register and display the digits
+				
 			ret ;for display_score
 				
-			game_over:
+			game_over: ;this subroutine is used to display gameover string along with score display at end
+			
 				lcall clrscreen
+				
 				mov a ,#36h
 				lcall choose_coord
 				mov dptr,#G
 				lcall display_char
+				
 				mov dptr,#chA
 				lcall display_char
 				mov a,#38h
+				
 				lcall choose_coord
 				mov dptr,#M
 				lcall display_char
+				
 				mov dptr,#E
 				lcall display_char
 				mov a ,#46h
 				lcall choose_coord
+				
 				mov dptr,#O
 				lcall display_char
+				
 				mov dptr,#V
 				lcall display_char
 				mov a,#48h
 				lcall choose_coord
+				
 				mov dptr,#E
 				lcall display_char
+				
 				mov dptr,#R
 				lcall display_char
 				
@@ -1318,8 +1219,6 @@ org 600h; snake game
 				
 				lcall disp_score
 				
-				lcall calc_score
-				
-				ends:sjmp ends
+			ends:sjmp ends
 
 end
