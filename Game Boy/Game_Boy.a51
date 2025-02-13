@@ -34,6 +34,27 @@
 ; reg-2->Snake Game Operations
 ; reg-3->Random Use
 
+;x-x-x-x-x-x-x-x-x-x-x-x-x-x-Key Changes Made in This Version Which I Would Like To Draw Your Attention To-x-x-x-x-x-x-x-x-x-x-x-x-x-x-x-x-x-x-x-x-x-x
+;1. Code In Code Memory has been segemnted as Follows:
+;-> form 0005h to 0040h main labeled code is written
+;-> from 0064h to 01A3h GLCD and Delay Related Routines are written
+;-> from 00250h to 02C2h Keyboard ISR is Written
+;-> from 0300h to 0700h Look-Up Table for Various Things Lies
+;-> from 0900h to 0E54h Main Gameboy Related Routines and Games Are Written
+
+;2. for GUI Related Purposes bit-wise memory location 08h to 0bh have been used appropriately
+
+;3. Keyboard ISR has been made more generalised as it should be !!!
+
+;4. calc_pos subroutine has been modified at end
+
+;5. some subroutines like that of snake game and game over haven been reduced to mere jump statements this can and probably will be fixed as and when 
+; required
+
+;6. I've changed some of your label names since they were conflicting with look-up table methods but don't worry I've renamed them more properly... 
+
+;AND THAT'S IT ENJOY READING ALL THESE CODES TRYING TO UNDERSTAND WHAT THEY DO...! :)
+
 org 0000h
 	
 	sjmp main
