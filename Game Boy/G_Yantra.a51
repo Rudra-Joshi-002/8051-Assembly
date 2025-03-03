@@ -449,12 +449,17 @@ org 400h;lookup tables for char ; black=1 ;upper nibble =lower 4 bits of 8 bits 
 org 700h; _4_in_a_row game starts here
 	
 		;reg bank 2 used for game operations
+		;r0 (10h)-> used as pointer to memory mapped loactions corresponding to GLCD Coordinates which is from 30h to 59h in RAM
+		;r1 (11h)-> used as pointers to memory loaction of which column is filled by what amount which is from 21h to 27h
 		;r2 (12h)-> col position info stored in this reg
-		;r1 (11h)-> used as pointers to memory loaction of which column is filled by what amount which is from r0 to r6 of rb-3
 		;r3 -> temporarily store the the value upto which a given selected column is filled
 		;r4 -> contains the glcd coordinates where the coin is suppose to fell once the user presses select
+		;r5 -> stores the memory mapped address value of any given GLCD coordinates
+		;r6 -> stores the memory mapped address the currently filled element
+		;r7 -> stores the count value for score related subroutines
 		;bit 00h -> column where coin is to be placed is seletcted this bit is used to indicate that
 		;bit 01h -> to determine a given players turn
+		;bit 03h -> to determine if get_memory_mapped subroutines is in use
 		
 		;also for ram location 30h to 59h the data in these memory locations are mapped to corresponding grid element coordinates of glcd 
 		;data present in them means the follwing thing
@@ -474,7 +479,7 @@ org 700h; _4_in_a_row game starts here
 		setb 01h ;bit set to mark that starting turn will be of player 1
 		
 		mov r0,#30h ;r0 points to the memory mapped locations for the GLCD Screen Which contains information about type of data in a given grid cell
-		mov r1,#18h ;r1 points to the location which cointain the no. of filled cell of chosen col
+		mov r1,#21h ;r1 points to the location which cointain the no. of filled cell of chosen col
 		
 		main_game:
 		
@@ -484,7 +489,7 @@ org 700h; _4_in_a_row game starts here
 		
 		lcall coin_drop;once position is selected by given player select is pressed then first coin has to get in chosen coloumn
 	  
-		lcall update_cursor ; based on changes like score and turn of other player display changes in screen
+		lcall update_cursor ; based on change that turn of next player display changes in screen
 		
 		sjmp main_game
 		
@@ -497,7 +502,7 @@ org 700h; _4_in_a_row game starts here
 		repeate_till_done:
 		
 		mov @r0,#00h ;initialize all the ram locations with 00h which means all grid elements are empty
-		
+		inc r0
 		djnz r7,repeate_till_done
 		
 		mov r0,#30h ;make sure to re-initialize r0 to correct default value
@@ -535,7 +540,7 @@ org 700h; _4_in_a_row game starts here
 					
 					djnz r6,nxt ;repeat the process till entire grid is drawn on screen
 					
-					mov a,#17h ;this is to place the coin of initial player
+					mov a,#17h ;this is to place the coin of initial player as cursor
 					mov r2,a
 					lcall choose_coord
 					mov dptr,#c_p1
@@ -608,15 +613,15 @@ org 700h; _4_in_a_row game starts here
 		exit_coin_drop:
 		ret;return for coin_drop
 	
-		fill_cell:;r1 points to 30h, 30h to 37h contains the value till which given column is filled
+		fill_cell:;r1 points to 21h, 21h to 27h contains the value till which given column is filled
 		
-			mov a,r2; lower nibble of r2 contains the col whuch is selected
+			mov a,r2; lower nibble of r2 contains the col which is selected , 
 			anl a,#0fh ; col which is selected is now in a
-			add a,r1 ; a pionts to the location which contains the information that how much cells are filled in chosen col
-			; say r0=18h => a=08h then a=>38h
+			add a,r1 ; a points to the location which contains the information that how much cells are filled in chosen col
+			; say r2=18h => a=08h then a=>29h
 			
 			clr c ;now this is done because the grid starts from 7th column till dth column for each row
-			subb a,#07h ;while r1 is to point form 30 to 36h only so to avoid the indexing issue
+			subb a,#07h ;while r1 is to point form 21 to 28h only so to avoid the indexing issue
 			mov r1,a ;we subtract 7 from the masked column value so that correct ram loaction corresponding to selected column can be choosen
 			mov a,@r1 ;content of 38h in a ; say it is zero so last row will be filled
 			mov r3,a ;temp reg to store the content of 38h
@@ -624,17 +629,17 @@ org 700h; _4_in_a_row game starts here
 			;below 3 lines are logic to change the memory content 
 			inc a ; inc the content in 38h
 			mov @r1,a ; save it in 38h
-			mov r1,#18h ; r1 again points to first location
+			mov r1,#21h ; r1 again points to first location
 			
 			;below is to set the cell positon which is to be filled in reg-a
-			mov a,#07h
+			mov a,#07h ; last row i.e row sixth is in page 7 so set that in accumulator
 			clr c
-			subb a,r3
-			swap a ; now upper nibble is set 
-			mov r3,a
-			mov a,r2
-			anl a,#0fh
-			add a,r3 ; now a contains which cell has to be filled
+			subb a,r3 ;r3 has content of how much the chosen col is filled upto , subtracting that from the last row so say two coins were filled in given col then the nxt coin has to be in 6-2=4th row that is 7-2=5th page  
+			swap a ; as our upper nibble is for page(row) and lower for col so swapping is done , this which cell has to be filled its page or row location is set 
+			mov r3,a ; again temporarily store that in r3
+			mov a,r2 ; lower nibble of r2 contains selected col
+			anl a,#0fh ; so now col information is in accumulator's lower nibble and upper is masked off 
+			add a,r3 ; now accumulator contains which cell has to be filled i.e exact coordinates of the location to be filled
 			
 			mov r4,a ;to be used later in ram updating subroutines
 			
@@ -643,6 +648,8 @@ org 700h; _4_in_a_row game starts here
 	update_ram: ;used to update ram memory locations correspoding to the grid filled by a given player
 	
 			mov a,r4 ;restore the currently filled cell location in reg-a
+			
+			get_mm:
 			
 			anl a,#0f0h ;mask the upper nibble to get row of the filled coin
 			swap a
@@ -695,6 +702,9 @@ org 700h; _4_in_a_row game starts here
 			subb a,#07h ;since each element of a given row starts from 7th column of glcd
 			add a,r0
 			mov r0,a
+			mov r6,a ;stores the memory mapped address the currently filled element
+			
+			jb 03h,exit_getmm
 			
 			jb 01h,updt_p2 ;to take apt decision as to what value is to be filled
 			
@@ -711,9 +721,34 @@ org 700h; _4_in_a_row game starts here
 		mov r0,#30h
 	
 	ret ;for update_ram
+	
+	get_memory_mapped:
+		
+		setb 03h ;set 03h bit high until this fuction is being executed
+		
+		sjmp get_mm
+		
+		exit_getmm:
+		
+		clr 03h ;clr the bit value once the job is over 
+		
+		mov r5,a ;store the memory mapped address value of any given GLCD coordinates 
+	
+	ret ;get memory mapped
 			
-	score_update:
-	ret;return for score_update
+	score_check:
+	
+	lcall check_vertical
+	
+	ret ;for score_check
+	
+	check_vertical: ;check the winning possiblity vertically
+	
+	mov a,r3 ;place the currently vaules of number of rows filled for given selection
+	
+	
+	
+	ret ;for check_vertical
 			
 	update_cursor:
 
