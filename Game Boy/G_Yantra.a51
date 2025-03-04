@@ -491,6 +491,8 @@ org 700h; _4_in_a_row game starts here
 	  
 		lcall update_cursor ; based on change that turn of next player display changes in screen
 		
+		lcall score_check
+		
 		sjmp main_game
 		
 		ret;return for game2
@@ -617,7 +619,7 @@ org 700h; _4_in_a_row game starts here
 		
 			mov a,r2; lower nibble of r2 contains the col which is selected , 
 			anl a,#0fh ; col which is selected is now in a
-			add a,r1 ; a points to the location which contains the information that how much cells are filled in chosen col
+			add a,r1 ; reg-a points to the location which contains the information that how much cells are filled in chosen col
 			; say r2=18h => a=08h then a=>29h
 			
 			clr c ;now this is done because the grid starts from 7th column till dth column for each row
@@ -738,16 +740,71 @@ org 700h; _4_in_a_row game starts here
 			
 	score_check:
 	
-	lcall check_vertical
+		lcall check_vertical ;check for vertical game over possiblity with currently filled element
 	
 	ret ;for score_check
 	
 	check_vertical: ;check the winning possiblity vertically
 	
-	mov a,r3 ;place the currently vaules of number of rows filled for given selection
-	
-	
-	
+		mov a,r4; lower nibble of r2 contains the col which is selected , 
+		anl a,#0f0h ; col which is selected is now in a
+		swap a
+		mov r7,a ;store the number temporarily in r7
+		
+		clr c
+		subb a,#04h ;subtract from 4 because a minimum of four values are required to be filled to start vertical checking
+		
+		jc continue_vertical ; if after subtracttion carry is not set means the total rows filled are either greater than or equal to 4
+		mov a,r7 ;if the above condition is false then we are still required to check fill the newly added element belongs to 4th row or not
+		cjne a,#04h,exit_vertical_algorithm ;if reg-a is 4 then we continue to implement our algorithm else we'll exit saving processing time
+		
+		continue_vertical:
+		
+		mov a,r4 ;move the coordinates of recently filled GLCD Coordinates in reg-a
+		lcall get_memory_mapped
+		
+		mov a,r5 ;move the type of data corresponding to coordinates in reg-a
+		mov r0,a ;copy the correpsonding memory mapped value in ro
+		mov a,@r0 ;now using r0 as pointer fetch the data stored in mapped memory adderss
+		mov 1bh,a ;move the type of data corresponding to coordinates in 1bh (i.e. R3 of RB-3)
+		
+		mov a,r4 ;move the coordinates of recently filled GLCD Coordinates in reg-a
+		add a,#10h ;since for every vertical check we have to go down a element to check and to go down by 1-Row We Increase by 10h;  
+		lcall get_memory_mapped
+		
+		mov a,r5 ;move the type of data corresponding to coordinates in reg-a
+		mov r0,a
+		mov a,@r0
+		mov 1ch,a ;move the type of data corresponding to coordinates in 1ch (i.e. R4 of RB-3)
+		
+		mov a,r4 ;move the coordinates of recently filled GLCD Coordinates in reg-a
+		add a,#20h ;since for every vertical check we have to go down a element to check and to go down by 1-Row We Increase by 10h;  
+		lcall get_memory_mapped
+		
+		mov a,r5 ;move the type of data corresponding to coordinates in reg-a
+		mov r0,a
+		mov a,@r0
+		mov 1dh,a ;move the type of data corresponding to coordinates in 1ch (i.e. R5 of RB-3)
+		
+		mov a,r4 ;move the coordinates of recently filled GLCD Coordinates in reg-a
+		add a,#30h ;since for every vertical check we have to go down a element to check and to go down by 1-Row We Increase by 10h;  
+		lcall get_memory_mapped
+		
+		mov a,r5 ;move the type of data corresponding to coordinates in reg-a
+		mov r0,a
+		mov a,@r0
+		mov 1eh,a ;move the type of data corresponding to coordinates in 1ch (i.e. R5 of RB-3)
+		
+		mov a,1bh ;now copy the contents of 1bh in reg-a for comparision purposes
+		
+		cjne a,1ch,exit_vertical_algorithm ;compare reg-a with elements below it if their data type are same
+		cjne a,1dh,exit_vertical_algorithm ;coninue to check for 3-values 
+		cjne a,1eh,exit_vertical_algorithm ;else exit at first different value
+		lcall clrscreen
+		exit_vertical_algorithm:
+		
+		mov r0,#30h ;reinitialize r0 with default value for which it was to be used as pointer for other routines 
+		
 	ret ;for check_vertical
 			
 	update_cursor:
